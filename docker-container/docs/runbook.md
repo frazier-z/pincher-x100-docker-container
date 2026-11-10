@@ -2,7 +2,7 @@
 
 This is the ROS 2 Humble setup for the PincherX-100 on the Apple M3 MacBook Air. The arm is the real robot, reached through the U2D2. Gazebo Classic is installed for simulation later. The desktop (RViz included) is a browser page on this machine.
 
-The working directory is `Docker - MultiArch`, next to this `docs` folder.
+The working directory is `docker-container`, next to this `docs` folder.
 
 ## What was built
 
@@ -40,7 +40,7 @@ The driver does not start with the container. After every start you launch it yo
 
 ## Tomorrow, if this container is still the one named `px100`
 
-Plug in the U2D2 and the arm power supply. From `Docker - MultiArch`:
+Plug in the U2D2 and the arm power supply. From `docker-container`:
 
 ```bash
 ./scripts/up.sh
@@ -76,7 +76,7 @@ Do not launch `xsarm_control` a second time while the first driver is still runn
 - `/tmp/px100_slow.yaml`, the motor config with `update_rate: 5`
 - the compiled command-priority patch, unless the image was built after that patch was added to the Dockerfile
 
-Plug in the arm, start Docker Desktop, and from `Docker - MultiArch` run `./scripts/up.sh` once. It starts the bridge and a new container, then stops because those files are missing.
+Plug in the arm, start Docker Desktop, and from `docker-container` run `./scripts/up.sh` once. It starts the bridge and a new container, then stops because those files are missing.
 
 The longer serial timeout. This needs a network connection for the clone:
 
@@ -109,7 +109,7 @@ A full `docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d --b
 
 ## Stopping
 
-From `Docker - MultiArch`:
+From `docker-container`:
 
 ```bash
 ./scripts/down.sh
@@ -153,7 +153,7 @@ g++ -O2 -o /tmp/reboot_waist /tmp/reboot_waist.cpp -I/opt/dxl_ws/install/dynamix
 
 | Piece                   | Where                                                |
 | ----------------------- | ---------------------------------------------------- |
-| Compose project         | `Docker - MultiArch`                                 |
+| Compose project         | `docker-container`                                 |
 | Image / container       | `px100-humble` / `px100`                             |
 | Bring-up                | `scripts/up.sh` (bridge, container, driver, torque)  |
 | Shutdown                | `scripts/down.sh` (container, then bridge)           |

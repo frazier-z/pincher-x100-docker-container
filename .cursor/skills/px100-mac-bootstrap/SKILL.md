@@ -1,18 +1,18 @@
 ---
 name: px100-mac-bootstrap
 description: >-
-  Bootstrap the PincherX-100 ROS 2 Humble Docker environment on a Mac and
-  drive the real arm through the U2D2. Use when setting up, rebuilding, or
-  starting this px100 stack, when Docker Desktop and python3 are already
-  installed, or when the user mentions up.sh, down.sh, the Mac USB bridge,
-  /dev/ttyDXL, or Docker - MultiArch.
+    Bootstrap the PincherX-100 ROS 2 Humble Docker environment on a Mac and
+    drive the real arm through the U2D2. Use when setting up, rebuilding, or
+    starting this px100 stack, when Docker Desktop and python3 are already
+    installed, or when the user mentions up.sh, down.sh, the Mac USB bridge,
+    /dev/ttyDXL, or docker-container.
 ---
 
 # PincherX-100 Mac bootstrap
 
-Work from `Docker - MultiArch`. ROS 2 is Humble. The real arm is driven by `./scripts/up.sh`, not by a plain `docker compose up`.
+Work from `docker-container`. ROS 2 is Humble. The real arm is driven by `./scripts/up.sh`, not by a plain `docker compose up`.
 
-Read `Docker - MultiArch/docs/runbook.md` before changing launch steps. Read `Docker - MultiArch/README.md` for the short path. Do not rewrite `scripts/up.sh`, `scripts/down.sh`, or the driver command path. Those already work.
+Read `docker-container/docs/runbook.md` before changing launch steps. Read `docker-container/README.md` for the short path. Do not rewrite `scripts/up.sh`, `scripts/down.sh`, or the driver command path. Those already work.
 
 ## Which start
 

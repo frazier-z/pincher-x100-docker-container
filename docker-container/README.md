@@ -1,6 +1,7 @@
 # PincherX-100 ROS 2 environment
 
 Works on Windows, macOS (both Intel and Apple Silicon) and Linux.
+This directory is `docker-container`.
 
 An agent setting this up on a Mac should follow the project skill
 `.cursor/skills/px100-mac-bootstrap/SKILL.md` (one folder above this README)

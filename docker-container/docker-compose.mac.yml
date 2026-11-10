@@ -1,0 +1,12 @@
+# macOS cannot mount a USB device into Docker. This overlay connects the
+# container to scripts/mac_u2d2_bridge.py running on the Mac, which owns the U2D2.
+services:
+  px100:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./scripts/container_ttydxl.py:/usr/local/bin/container_ttydxl.py:ro
+    command:
+      - /bin/bash
+      - -c
+      - python3 -u /usr/local/bin/container_ttydxl.py & exec /usr/local/bin/start-desktop.sh

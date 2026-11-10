@@ -1,0 +1,19 @@
+services:
+  px100:
+    build: .
+    image: px100-humble
+    container_name: px100
+    ports:
+      - "127.0.0.1:6080:6080"   # browser desktop: http://localhost:6080
+    shm_size: "1gb"             # RViz / Gazebo need more shared memory than the default
+    environment:
+      - ROS_DOMAIN_ID=42
+    volumes:
+      - ./me5250_ws:/root/me5250_ws   # your course code lives on your own computer
+    restart: unless-stopped
+
+    # Linux, or Windows after usbipd attaches the U2D2 to WSL: uncomment and set
+    # the host device. It is mapped to /dev/ttyDXL, the port the driver expects.
+    # macOS uses docker-compose.mac.yml instead. Docker cannot mount the USB device there.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyDXL

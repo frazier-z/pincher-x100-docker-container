@@ -1,0 +1,161 @@
+diff --git a/interbotix_ros_xseries/interbotix_xs_sdk/include/interbotix_xs_sdk/xs_sdk_obj.hpp b/interbotix_ros_xseries/interbotix_xs_sdk/include/interbotix_xs_sdk/xs_sdk_obj.hpp
+index 1451253..bf9a1b8 100644
+--- a/interbotix_ros_xseries/interbotix_xs_sdk/include/interbotix_xs_sdk/xs_sdk_obj.hpp
++++ b/interbotix_ros_xseries/interbotix_xs_sdk/include/interbotix_xs_sdk/xs_sdk_obj.hpp
+@@ -29,6 +29,8 @@
+ #ifndef INTERBOTIX_XS_SDK__XS_SDK_OBJ_HPP_
+ #define INTERBOTIX_XS_SDK__XS_SDK_OBJ_HPP_
+ 
++#include <atomic>
++#include <mutex>
+ #include <string>
+ #include <regex>
+ #include <bitset>
+@@ -134,6 +136,35 @@ private:
+   // ROS Timer used to continuously publish joint states
+   rclcpp::TimerBase::SharedPtr tmr_joint_states;
+ 
++  // Joint reads run here, separate from command callbacks. A command increments
++  // bus_waiters_ so the next read gives up the serial port instead of starting.
++  rclcpp::CallbackGroup::SharedPtr cb_group_joint_states_;
++  std::mutex bus_mutex_;
++  std::atomic<int> bus_waiters_{0};
++
++  class BusTicket
++  {
++public:
++    explicit BusTicket(InterbotixRobotXS & node)
++    : node_(node)
++    {
++      node_.bus_waiters_.fetch_add(1, std::memory_order_acq_rel);
++      node_.bus_mutex_.lock();
++    }
++
++    ~BusTicket()
++    {
++      node_.bus_mutex_.unlock();
++      node_.bus_waiters_.fetch_sub(1, std::memory_order_acq_rel);
++    }
++
++    BusTicket(const BusTicket &) = delete;
++    BusTicket & operator=(const BusTicket &) = delete;
++
++private:
++    InterbotixRobotXS & node_;
++  };
++
+   // ROS One-Shot Timer used when commanding motor trajectories
+   rclcpp::TimerBase::SharedPtr tmr_joint_traj;
+ 
+diff --git a/interbotix_ros_xseries/interbotix_xs_sdk/src/xs_sdk_obj.cpp b/interbotix_ros_xseries/interbotix_xs_sdk/src/xs_sdk_obj.cpp
+index 44dc0e5..bac88d5 100644
+--- a/interbotix_ros_xseries/interbotix_xs_sdk/src/xs_sdk_obj.cpp
++++ b/interbotix_ros_xseries/interbotix_xs_sdk/src/xs_sdk_obj.cpp
+@@ -143,12 +143,15 @@ void InterbotixRobotXS::robot_init_timers()
+   execute_joint_traj = false;
+   using namespace std::chrono_literals;
+   if (timer_hz != 0) {
++    cb_group_joint_states_ = this->create_callback_group(
++      rclcpp::CallbackGroupType::MutuallyExclusive);
+     // timer that updates the joint states with a period of 1/timer_hz
+     tmr_joint_states = this->create_wall_timer(
+       std::chrono::nanoseconds(static_cast<int>(1.0e9 / (timer_hz))),
+       std::bind(
+         &InterbotixRobotXS::robot_update_joint_states,
+-        this));
++        this),
++      cb_group_joint_states_);
+   }
+ }
+ 
+@@ -166,16 +169,19 @@ void InterbotixRobotXS::robot_wait_for_joint_states()
+ 
+ void InterbotixRobotXS::robot_sub_command_group(const JointGroupCommand::SharedPtr msg)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   xs_driver->write_commands(msg->name, msg->cmd);
+ }
+ 
+ void InterbotixRobotXS::robot_sub_command_single(const JointSingleCommand::SharedPtr msg)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   xs_driver->write_joint_command(msg->name, msg->cmd);
+ }
+ 
+ void InterbotixRobotXS::robot_sub_command_traj(const JointTrajectoryCommand::SharedPtr msg)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   using namespace std::chrono_literals;
+   if (execute_joint_traj) {
+     RCLCPP_WARN(LOGGER, "Trajectory rejected since joints are still moving.");
+@@ -226,6 +232,7 @@ bool InterbotixRobotXS::robot_srv_torque_enable(
+   const std::shared_ptr<TorqueEnable::Request> req,
+   const std::shared_ptr<TorqueEnable::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -240,6 +247,7 @@ bool InterbotixRobotXS::robot_srv_reboot_motors(
+   const std::shared_ptr<Reboot::Request> req,
+   const std::shared_ptr<Reboot::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -327,6 +335,7 @@ bool InterbotixRobotXS::robot_srv_set_operating_modes(
+   const std::shared_ptr<OperatingModes::Request> req,
+   const std::shared_ptr<OperatingModes::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -347,6 +356,7 @@ bool InterbotixRobotXS::robot_srv_set_motor_pid_gains(
+   const std::shared_ptr<MotorGains::Request> req,
+   const std::shared_ptr<MotorGains::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -369,6 +379,7 @@ bool InterbotixRobotXS::robot_srv_set_motor_registers(
+   const std::shared_ptr<RegisterValues::Request> req,
+   const std::shared_ptr<RegisterValues::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -383,6 +394,7 @@ bool InterbotixRobotXS::robot_srv_get_motor_registers(
+   const std::shared_ptr<RegisterValues::Request> req,
+   std::shared_ptr<RegisterValues::Response> res)
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   (void)request_header;
+   if (!robot_srv_validate(req->cmd_type, req->name)) {
+     return false;
+@@ -394,6 +406,7 @@ bool InterbotixRobotXS::robot_srv_get_motor_registers(
+ 
+ void InterbotixRobotXS::robot_execute_trajectory()
+ {
++  [[maybe_unused]] BusTicket ticket(*this);
+   // get the current real time for this callback execution
+   rclcpp::Time current_real = this->get_clock()->now();
+ 
+@@ -494,6 +507,14 @@ void InterbotixRobotXS::robot_execute_trajectory()
+ 
+ void InterbotixRobotXS::robot_update_joint_states()
+ {
++  if (bus_waiters_.load(std::memory_order_acquire) > 0) {
++    return;
++  }
++  std::unique_lock<std::mutex> lock(bus_mutex_, std::try_to_lock);
++  if (!lock.owns_lock() || bus_waiters_.load(std::memory_order_acquire) > 0) {
++    return;
++  }
++
+   sensor_msgs::msg::JointState joint_state_msg;
+ 
+   joint_state_msg.name = xs_driver->get_all_joint_names();

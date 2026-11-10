@@ -1,0 +1,7 @@
+# Keep Linux line endings for everything that runs inside the container,
+# even when students clone the repo on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.stl binary
+*.dae binary

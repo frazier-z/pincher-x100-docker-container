@@ -11,6 +11,12 @@ DEVICE="${1:-}"
 
 say() { printf '%s\n' "$*"; }
 
+# The container keeps the name px100 across compose project renames.
+# Talk to that container directly so a new project does not try to create another one.
+px() {
+  docker exec -i px100 "$@"
+}
+
 bridge_running() {
   pgrep -f "scripts/mac_u2d2_bridge.py" >/dev/null 2>&1
 }
@@ -60,11 +66,11 @@ PY
 }
 
 driver_running() {
-  "${COMPOSE[@]}" exec -T px100 bash -lc 'ps -eo cmd' | grep -q '/interbotix_xs_sdk/xs_sdk ' || return 1
+  px bash -lc 'ps -eo cmd' | grep -q '/interbotix_xs_sdk/xs_sdk ' || return 1
 }
 
 launch_running() {
-  "${COMPOSE[@]}" exec -T px100 bash -lc 'ps -eo cmd' | grep -q 'xsarm_control.launch.py' || return 1
+  px bash -lc 'ps -eo cmd' | grep -q 'xsarm_control.launch.py' || return 1
 }
 
 stop_launch() {
@@ -72,7 +78,7 @@ stop_launch() {
     return
   fi
   say "Stopping the previous driver launch."
-  "${COMPOSE[@]}" exec -T px100 bash -s << 'EOS'
+  px bash -s << 'EOS'
 ps -eo pid,cmd | awk '/xsarm_control.launch.py/ && !/awk/ {print $1}' | while read -r pid; do
   kill -INT "$pid" 2>/dev/null || true
 done
@@ -91,7 +97,7 @@ EOS
 wait_for_tty() {
   local i
   for i in $(seq 1 20); do
-    if "${COMPOSE[@]}" exec -T px100 bash -lc 'test -L /dev/ttyDXL'; then
+    if px bash -lc 'test -L /dev/ttyDXL'; then
       return 0
     fi
     sleep 0.5
@@ -104,11 +110,11 @@ wait_for_tty() {
 wait_for_driver() {
   local i
   for i in $(seq 1 45); do
-    if "${COMPOSE[@]}" exec -T px100 bash -lc 'grep -qs "Interbotix X-Series Driver is up" /tmp/xsarm.log'; then
+    if px bash -lc 'grep -qs "Interbotix X-Series Driver is up" /tmp/xsarm.log'; then
       return 0
     fi
-    if "${COMPOSE[@]}" exec -T px100 bash -lc 'grep -qs "Failed to find all motors" /tmp/xsarm.log'; then
-      if "${COMPOSE[@]}" exec -T px100 bash -lc 'grep -qs "Hardware error occurred" /tmp/xsarm.log && grep -qs "Joint Name: '"'"'waist'"'"'" /tmp/xsarm.log'; then
+    if px bash -lc 'grep -qs "Failed to find all motors" /tmp/xsarm.log'; then
+      if px bash -lc 'grep -qs "Hardware error occurred" /tmp/xsarm.log && grep -qs "Joint Name: '"'"'waist'"'"'" /tmp/xsarm.log'; then
         return 2
       fi
       return 1
@@ -119,14 +125,14 @@ wait_for_driver() {
 }
 
 launch_driver() {
-  "${COMPOSE[@]}" exec -T px100 rm -f /tmp/xsarm.log
-  "${COMPOSE[@]}" exec -d px100 bash -lc 'source /opt/ros/humble/setup.bash && source /opt/gazebo_ws/install/setup.bash && source /root/interbotix_ws/install/setup.bash && source /opt/dxl_ws/install/setup.bash && ros2 launch interbotix_xsarm_control xsarm_control.launch.py robot_model:=px100 motor_configs:=/tmp/px100_slow.yaml > /tmp/xsarm.log 2>&1'
+  px rm -f /tmp/xsarm.log
+  docker exec -d px100 bash -lc 'source /opt/ros/humble/setup.bash && source /opt/gazebo_ws/install/setup.bash && source /root/interbotix_ws/install/setup.bash && source /opt/dxl_ws/install/setup.bash && ros2 launch interbotix_xsarm_control xsarm_control.launch.py robot_model:=px100 motor_configs:=/tmp/px100_slow.yaml > /tmp/xsarm.log 2>&1'
 }
 
 reboot_waist() {
   say "Waist servo has a latched hardware error. Rebooting it."
   wait_for_tty
-  "${COMPOSE[@]}" exec -T px100 bash -s << 'EOS'
+  px bash -s << 'EOS'
 set -eo pipefail
 set +u
 source /opt/dxl_ws/install/setup.bash
@@ -167,7 +173,7 @@ start_driver() {
     say "Driver is already running."
     return
   fi
-  if ! "${COMPOSE[@]}" exec -T px100 bash -lc 'test -e /opt/dxl_ws/install/setup.bash && test -f /tmp/px100_slow.yaml'; then
+  if ! px bash -lc 'test -e /opt/dxl_ws/install/setup.bash && test -f /tmp/px100_slow.yaml'; then
     say "This container is missing /opt/dxl_ws or /tmp/px100_slow.yaml."
     say "Those are rebuilt with the steps in docs/runbook.md under 'If the container was recreated'."
     exit 1
@@ -194,20 +200,38 @@ start_driver() {
     fi
   fi
   say "Driver could not find every motor. Log:"
-  "${COMPOSE[@]}" exec -T px100 tail -n 40 /tmp/xsarm.log >&2
+  px tail -n 40 /tmp/xsarm.log >&2
   exit 1
 }
 
+start_container() {
+  if docker container inspect px100 >/dev/null 2>&1; then
+    say "Starting the existing px100 container."
+    # A renamed project folder leaves the old bind as an empty directory.
+    # The container still expects the bridge script at that path.
+    local tty_src
+    tty_src="$(docker inspect px100 --format '{{range .Mounts}}{{if eq .Destination "/usr/local/bin/container_ttydxl.py"}}{{.Source}}{{end}}{{end}}')"
+    if [[ -n "$tty_src" && ! -f "$tty_src" ]]; then
+      rm -rf "$tty_src"
+      mkdir -p "$(dirname "$tty_src")"
+      cp "$ROOT/scripts/container_ttydxl.py" "$tty_src"
+    fi
+    docker start px100 >/dev/null
+    return
+  fi
+  say "Starting the container."
+  "${COMPOSE[@]}" up -d
+}
+
 start_bridge
-say "Starting the container."
-"${COMPOSE[@]}" up -d
+start_container
 
 say "Waiting for /dev/ttyDXL."
 wait_for_tty
 
 enable_torque() {
   say "Turning torque on."
-  "${COMPOSE[@]}" exec -T px100 bash -lc 'source /opt/ros/humble/setup.bash && source /root/interbotix_ws/install/setup.bash && ros2 service call /px100/torque_enable interbotix_xs_msgs/srv/TorqueEnable "{cmd_type: group, name: arm, enable: true}"'
+  px bash -lc 'source /opt/ros/humble/setup.bash && source /root/interbotix_ws/install/setup.bash && ros2 service call /px100/torque_enable interbotix_xs_msgs/srv/TorqueEnable "{cmd_type: group, name: arm, enable: true}"'
 }
 
 start_driver
@@ -218,5 +242,5 @@ say "Torque is on. Publish a pose from the container shell, for example:"
 say '  ros2 topic pub --once /px100/commands/joint_group interbotix_xs_msgs/msg/JointGroupCommand "{name: arm, cmd: [0.0, -1.5, 1.4, 0.5]}"'
 if [[ -t 0 && -t 1 ]]; then
   say "Opening a shell in the container."
-  exec "${COMPOSE[@]}" exec px100 bash
+  exec docker exec -it px100 bash
 fi

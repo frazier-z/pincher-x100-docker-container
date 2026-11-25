@@ -14,7 +14,11 @@ bridge_pids() {
 }
 
 say "Stopping the container."
-"${COMPOSE[@]}" stop
+if docker container inspect px100 >/dev/null 2>&1; then
+  docker stop px100 >/dev/null
+else
+  "${COMPOSE[@]}" stop
+fi
 
 pids="$(bridge_pids)"
 if [[ -z "$pids" ]]; then
